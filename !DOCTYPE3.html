@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>쿼리도 - 초기화 기능 포함</title>
+    <style>
+        :root { --cell-size: 50px; --gap-size: 12px; --p1-color: #e74c3c; --p2-color: #3498db; }
+        body { 
+            font-family: 'Pretendard', sans-serif; 
+            display: flex; flex-direction: column; align-items: center; 
+            transition: background 0.5s ease;
+            margin: 0; padding: 20px;
+        }
+        
+        body.turn-p1 { background: #fdf2f2; }
+        body.turn-p2 { background: #f2f7fd; }
+
+        .info-card { 
+            margin-bottom: 20px; padding: 20px; width: 400px;
+            background: white; border-radius: 15px; 
+            box-shadow: 0 10px 20px rgba(0,0,0,0.05); text-align: center;
+        }
+
+        #turn-indicator {
+            font-size: 24px; font-weight: 800; margin-bottom: 10px;
+            padding: 10px; border-radius: 8px; color: white; transition: all 0.3s;
+        }
+
+        #board { 
+            display: grid; grid-template-columns: repeat(9, 50px); grid-template-rows: repeat(9, 50px); 
+            gap: 12px; background: #2c3e50; padding: 12px; border-radius: 10px; position: relative;
+        }
+
+        .cell { width: 50px; height: 50px; background: #bdc3c7; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        
+        .player { width: 35px; height: 35px; border-radius: 50%; box-shadow: 0 4px 10px rgba(0,0,0,0.3); z-index: 2; }
+        .p1 { background: var(--p1-color); border: 3px solid #c0392b; }
+        .p2 { background: var(--p2-color); border: 3px solid #2980b9; }
+
+        .active-turn { animation: pulse 1.5s infinite; transform: scale(1.1); }
+        @keyframes pulse { 0%, 100% { transform: scale(1.1); } 50% { transform: scale(1.25); } }
+
+        .wall-space { position: absolute; background: rgba(0,0,0,0.05); cursor: pointer; border-radius: 5px; z-index: 1; }
+        .wall-space:hover { background: rgba(241, 196, 15, 0.4); }
+        .wall-placed { background: #f1c40f !important; z-index: 5; }
+
+        .wall-count { display: flex; justify-content: space-around; margin: 10px 0; }
+        .count-box { padding: 5px 15px; border-radius: 20px; font-weight: bold; background: #fff; }
+
+        /* 초기화 버튼 스타일 */
+        .btn-reset {
+            margin-top: 25px; padding: 12px 30px; font-size: 16px; font-weight: bold;
+            color: white; background: #27ae60; border: none; border-radius: 50px;
+            cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 15px rgba(39, 174, 96, 0.3);
+        }
+        .btn-reset:hover { background: #2ecc71; transform: translateY(-2px); }
+        .btn-reset:active { transform: translateY(0); }
+    </style>
+</head>
+<body class="turn-p1">
+
+<div class="info-card">
+    <div id="turn-indicator" style="background: var(--p1-color);">빨간색(P1) 차례</div>
+    <div class="wall-count">
+        <div class="count-box" style="color: var(--p1-color); border: 2px solid var(--p1-color)">P1 벽: <span id="p1-walls">10</span></div>
+        <div class="count-box" style="color: var(--p2-color); border: 2px solid var(--p2-color)">P2 벽: <span id="p2-walls">10</span></div>
+    </div>
+</div>
+
+<div id="board"></div>
+
+<button class="btn-reset" onclick="resetGame()">🔄 게임 초기화</button>
+
+<script>
+    const SIZE = 9;
+    const boardEl = document.getElementById('board');
+    let cells = [];
+    let p1, p2, turn;
+
+    // 게임 상태 초기화 함수
+    function resetGame() {
+        if(!confirm("게임을 처음부터 다시 시작할까요?")) return;
+        
+        // 데이터 초기화
+        p1 = { r: 0, c: 4, walls: 10, target: 8 };
+        p2 = { r: 8, c: 4, walls: 10, target: 0 };
+        turn = 1;
+
+        // 보드 내부 엘리먼트 싹 비우기
+        boardEl.innerHTML = '';
+        cells = [];
+
+        // 보드 다시 생성
+        initBoard();
+    }
+
+    function initBoard() {
+        // 1. 노드 및 격자 생성
+        for (let r = 0; r < SIZE; r++) {
+            cells[r] = [];
+            for (let c = 0; c < SIZE; c++) {
+                const el = document.createElement('div');
+                el.className = 'cell';
+                el.onclick = () => tryMove(r, c);
+                boardEl.appendChild(el);
+                cells[r][c] = { r, c, el, neighbors: [] };
+            }
+        }
+        // 2. 연결리스트 초기 연결
+        for (let r = 0; r < SIZE; r++) {
+            for (let c = 0; c < SIZE; c++) {
+                if (r > 0) cells[r][c].neighbors.push(cells[r-1][c]);
+                if (r < SIZE-1) cells[r][c].neighbors.push(cells[r+1][c]);
+                if (c > 0) cells[r][c].neighbors.push(cells[r][c-1]);
+                if (c < SIZE-1) cells[r][c].neighbors.push(cells[r][c+1]);
+            }
+        }
+        createWallSpaces();
+        render();
+    }
+
+    function createWallSpaces() {
+        const gap = 12; const size = 50;
+        for (let r = 0; r < SIZE - 1; r++) {
+            for (let c = 0; c < SIZE - 1; c++) {
+                ['h', 'v'].forEach(type => {
+                    const w = document.createElement('div');
+                    w.className = `wall-space ${type}-wall`;
+                    if (type === 'h') {
+                        w.style.width = (size * 2 + gap) + "px"; w.style.height = gap + "px";
+                        w.style.top = (size + r * (size + gap) + gap) + "px"; w.style.left = (c * (size + gap) + gap) + "px";
+                    } else {
+                        w.style.width = gap + "px"; w.style.height = (size * 2 + gap) + "px";
+                        w.style.top = (r * (size + gap) + gap) + "px"; w.style.left = (size + c * (size + gap) + gap) + "px";
+                    }
+                    w.onclick = () => tryPlaceWall(r, c, type, w);
+                    boardEl.appendChild(w);
+                });
+            }
+        }
+    }
+
+    function tryMove(r, c) {
+        const p = (turn === 1) ? p1 : p2;
+        if (cells[p.r][p.c].neighbors.includes(cells[r][c])) {
+            p.r = r; p.c = c;
+            if (p.r === p.target) {
+                alert(`축하합니다! 플레이어 ${turn} 승리!`);
+                resetGame();
+                return;
+            }
+            turn = (turn === 1) ? 2 : 1;
+            render();
+        }
+    }
+
+    function tryPlaceWall(r, c, type, el) {
+        const p = (turn === 1) ? p1 : p2;
+        if (p.walls <= 0 || el.classList.contains('wall-placed')) return;
+
+        let pairs = (type === 'h') ? 
+            [[cells[r][c], cells[r+1][c]], [cells[r][c+1], cells[r+1][c+1]]] : 
+            [[cells[r][c], cells[r][c+1]], [cells[r+1][c], cells[r+1][c+1]]];
+        
+        pairs.forEach(([a, b]) => {
+            a.neighbors = a.neighbors.filter(n => n !== b);
+            b.neighbors = b.neighbors.filter(n => n !== a);
+        });
+
+        if (hasPath(p1.r, p1.c, p1.target) && hasPath(p2.r, p2.c, p2.target)) {
+            el.classList.add('wall-placed');
+            p.walls--;
+            turn = (turn === 1) ? 2 : 1;
+            render();
+        } else {
+            pairs.forEach(([a, b]) => { a.neighbors.push(b); b.neighbors.push(a); });
+            alert("길을 완전히 막을 수는 없습니다!");
+        }
+    }
+
+    function hasPath(sr, sc, tr) {
+        let q = [cells[sr][sc]], v = new Set([cells[sr][sc]]);
+        while (q.length) {
+            let curr = q.shift(); if (curr.r === tr) return true;
+            for (let n of curr.neighbors) { if (!v.has(n)) { v.add(n); q.push(n); } }
+        }
+        return false;
+    }
+
+    function render() {
+        document.body.className = `turn-p${turn}`;
+        const indicator = document.getElementById('turn-indicator');
+        indicator.innerText = turn === 1 ? "빨간색(P1) 차례" : "파란색(P2) 차례";
+        indicator.style.background = `var(--p${turn}-color)`;
+
+        document.querySelectorAll('.cell').forEach(el => el.innerHTML = '');
+        
+        const p1El = document.createElement('div');
+        p1El.className = `player p1 ${turn === 1 ? 'active-turn' : ''}`;
+        cells[p1.r][p1.c].el.appendChild(p1El);
+
+        const p2El = document.createElement('div');
+        p2El.className = `player p2 ${turn === 2 ? 'active-turn' : ''}`;
+        cells[p2.r][p2.c].el.appendChild(p2El);
+
+        document.getElementById('p1-walls').innerText = p1.walls;
+        document.getElementById('p2-walls').innerText = p2.walls;
+    }
+
+    // 첫 실행 (resetGame 대신 초기 호출용)
+    p1 = { r: 0, c: 4, walls: 10, target: 8 };
+    p2 = { r: 8, c: 4, walls: 10, target: 0 };
+    turn = 1;
+    initBoard();
+</script>
+</body>
+</html>
